@@ -1,0 +1,42 @@
+server:
+  port: 8080
+  
+spring:
+  cloud:
+    gateway:
+      mvc:
+        routes:
+          - id: auth-service
+            uri: lb://auth-service
+            predicates:
+              - Path=/api/auth/**
+
+          - id: course-service
+            uri: lb://course-service
+            predicates:
+              - Path=/api/courses/**,/api/categories/**
+
+          - id: enrollment-service
+            uri: lb://enrollment-service
+            predicates:
+              - Path=/api/enrollments/**
+
+          - id: enrollment-service-paths
+            uri: lb://enrollment-service
+            predicates:
+              - Path=/api/paths/me/**
+
+          - id: ai-service
+            uri: lb://ai-service
+            predicates:
+              - Path=/api/ai/**
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka-server:8761/eureka/
+  instance:
+    prefer-ip-address: true
+  
+jwt:
+  secret: ${JWT_SECRET}

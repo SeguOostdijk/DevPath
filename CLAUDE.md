@@ -14,10 +14,12 @@ Es un proyecto de práctica para consolidar conocimientos de Spring Boot, Spring
 
 ## Stack tecnológico
 
-- **Backend**: Java 17, Spring Boot 3.2, Spring Cloud 2023.0.0, Spring Security + JWT
+- **Backend**: Java 17, Spring Security + JWT
+  - Microservicios de negocio (auth, course, enrollment, ai): Spring Boot 3.2.0, Spring Cloud 2023.0.0
+  - Infraestructura (eureka-server, config-server, api-gateway): Spring Boot 4.0.5, Spring Cloud 2025.1.1
 - **Base de datos**: MySQL 8.0 (una por microservicio)
 - **Infraestructura**: Docker Compose, Eureka Server, Spring Cloud Gateway, Spring Cloud Config, Feign Client, Spring Boot Actuator
-- **IA**: API de Claude (Anthropic) — llamada HTTP desde `ai-service`
+- **IA**: API de Groq (modelo `llama-3.3-70b-versatile`) — llamada HTTP desde `ai-service`. Compatible con formato OpenAI.
 - **Frontend**: React (Fase 5)
 - **IDE**: IntelliJ IDEA Community
 - **Build**: Maven
@@ -61,7 +63,7 @@ API Gateway (8080) — valida JWT, rutea
 
 ai-service → course-service (Feign, consulta catálogo)
 ai-service → enrollment-service (Feign, persiste ruta)
-ai-service → API Claude externa (HTTP)
+ai-service → API Groq externa (HTTP)
 enrollment-service → course-service (Feign, datos de cursos)
 enrollment-service → auth-service (Feign, datos de usuario)
 ```
@@ -246,7 +248,7 @@ path_courses (
 ### Generación de ruta
 1. Frontend → `ai-service` POST `/api/ai/chat` (conversación sin auth)
 2. `ai-service` → `course-service` via Feign (obtiene catálogo)
-3. `ai-service` → API Claude externa (genera ruta con catálogo como contexto)
+3. `ai-service` → API Groq externa (genera ruta con catálogo como contexto)
 4. `ai-service` → `enrollment-service` POST `/api/paths` (persiste la ruta)
 5. `ai-service` → Frontend (devuelve ruta generada)
 
@@ -254,7 +256,7 @@ path_courses (
 1. Frontend → `ai-service` POST `/api/ai/lessons/{lessonId}/content`
 2. `ai-service` → `course-service` via Feign (verifica si hay `content_cache`)
 3. Si existe → devuelve el cache directamente
-4. Si no → llama a API Claude, guarda en `content_cache`, devuelve
+4. Si no → llama a API Groq, guarda en `content_cache`, devuelve
 
 ### Inscripción a un curso
 1. Usuario sin sesión puede explorar catálogo, ver cursos y generar rutas
@@ -268,13 +270,15 @@ path_courses (
 - **Fase 1**: `eureka-server` + `config-server` + `api-gateway` + `auth-service` + Docker Compose base
 - **Fase 2**: `course-service` con CRUD, instructores, categorías y datos de prueba (`data.sql`)
 - **Fase 3**: `enrollment-service` con inscripciones, progreso por clase y rutas generadas
-- **Fase 4**: `ai-service` con chat conversacional, generación de rutas e integración con API Claude
+- **Fase 4**: `ai-service` con chat conversacional, generación de rutas e integración con API Groq
 - **Fase 5**: Frontend React consumiendo todos los servicios
 - **Fase 6**: Manejo de errores global, validaciones, seguridad, README completo
 
 ---
 
 ## Dependencias base (pom.xml de cada microservicio)
+
+### Microservicios de negocio (auth, course, enrollment, ai) — Spring Boot 3.2
 
 ```xml
 <parent>
@@ -301,7 +305,34 @@ path_courses (
 </dependencyManagement>
 ```
 
-Todos los microservicios (auth, course, enrollment, ai) incluyen:
+### Infraestructura (eureka-server, config-server, api-gateway) — Spring Boot 4.0.5
+
+```xml
+<parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.0.5</version>
+</parent>
+
+<properties>
+    <java.version>17</java.version>
+    <spring-cloud.version>2025.1.1</spring-cloud.version>
+</properties>
+
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-dependencies</artifactId>
+            <version>${spring-cloud.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+```
+
+Todos los microservicios de negocio (auth, course, enrollment, ai) incluyen:
 - `spring-boot-starter-web`
 - `spring-boot-starter-data-jpa`
 - `spring-boot-starter-validation`
@@ -315,6 +346,47 @@ JWT (solo auth-service y api-gateway):
 - `io.jsonwebtoken:jjwt-api:0.11.5`
 - `io.jsonwebtoken:jjwt-impl:0.11.5`
 - `io.jsonwebtoken:jjwt-jackson:0.11.5`
+
+---
+
+## Configuración por servicio
+
+Cada microservicio tiene un `application.yml` mínimo — solo nombre y conexión al config-server:
+
+```yaml
+server:
+  port: XXXX
+
+spring:
+  application:
+    name: nombre-del-servicio
+  config:
+    import: "optional:configserver:http://localhost:8888"
+```
+
+Todo lo demás (datasource, eureka, jwt, rutas del gateway, etc.) va en el archivo correspondiente dentro del config-server:
+
+```
+configurations/
+    auth-service.yml
+    api-gateway.yml
+    course-service.yml
+    enrollment-service.yml
+    ai-service.yml
+```
+
+El config-server encuentra el archivo correcto usando el `spring.application.name` de cada servicio.
+
+**`configurations/ai-service.yml`** (en config-server):
+```yaml
+groq:
+  api-key: ${GROQ_API_KEY}
+  base-url: https://api.groq.com/openai/v1/chat/completions
+  model: llama-3.3-70b-versatile
+  max-tokens: 1000
+```
+
+El cliente de Groq en `ai-service` usa el formato compatible con OpenAI — solo cambia la base URL y el modelo.
 
 ---
 
@@ -336,6 +408,71 @@ JWT (solo auth-service y api-gateway):
 
 - Comunicación entre servicios siempre via Feign — nunca `RestTemplate` con URL hardcodeada
 - URLs de servicios resueltas por Eureka — nunca hardcodeadas
+
+---
+
+## Variables de entorno y secretos
+
+**Nunca hardcodear secretos en el código ni en los `application.yml` de cada servicio.**
+
+### Flujo
+
+```
+.env → docker-compose → variable de entorno del contenedor
+                              ↓
+                      config-server lee ${JWT_SECRET}
+                              ↓
+                   auth-service y api-gateway reciben jwt.secret
+```
+
+### Archivos
+
+**`.env`** (en `devpath/`, en `.gitignore` — nunca se sube a GitHub):
+```env
+JWT_SECRET=mi-clave-secreta-super-larga-de-al-menos-256-bits
+MYSQL_ROOT_PASSWORD=root
+GROQ_API_KEY=gsk_...
+```
+
+**`.env.example`** (en `devpath/`, sí se sube a GitHub):
+```env
+# JWT
+JWT_SECRET=
+
+# MySQL
+MYSQL_ROOT_PASSWORD=
+
+# Groq
+GROQ_API_KEY=
+```
+
+**`configurations/auth-service.yml`** (en config-server):
+```yaml
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: 86400000
+  refresh-expiration: 604800000
+```
+
+**`configurations/api-gateway.yml`** (en config-server):
+```yaml
+jwt:
+  secret: ${JWT_SECRET}
+```
+
+**`docker-compose.yml`**:
+```yaml
+auth-service:
+  environment:
+    JWT_SECRET: ${JWT_SECRET}
+
+api-gateway:
+  environment:
+    JWT_SECRET: ${JWT_SECRET}
+```
+
+### Regla importante
+`JWT_SECRET` debe ser la **misma clave** en `auth-service` y `api-gateway` — `auth-service` la usa para firmar el token y `api-gateway` para validarlo.
 
 ---
 

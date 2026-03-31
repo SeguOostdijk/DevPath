@@ -4,10 +4,10 @@ server:
 spring:
   application:
     name: config-server
-  profiles:
-    active: native
   cloud:
     config:
       server:
-        native:
-          search-locations: classpath:/configs
+        git:
+          uri: https://github.com/SeguOostdijk/DevPath
+          default-label: main
+          search-paths: configurations
