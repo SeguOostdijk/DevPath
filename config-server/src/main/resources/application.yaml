@@ -11,3 +11,7 @@ spring:
           uri: https://github.com/SeguOostdijk/DevPath
           default-label: main
           search-paths: configurations
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka-server:8761/eureka/
