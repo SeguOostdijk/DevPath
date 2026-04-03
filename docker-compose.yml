@@ -19,6 +19,23 @@ services:
       retries: 5
       start_period: 30s
 
+  mysql-course:
+    image: mysql:8.0
+    container_name: mysql-course
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: course_db
+    volumes:
+      - mysql-course-data:/var/lib/mysql
+    networks:
+      - devpath-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   # ── Infraestructura ─────────────────────────────────────────────────────────
 
   eureka-server:
@@ -56,7 +73,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 90s
 
   # ── Microservicios ──────────────────────────────────────────────────────────
 
@@ -95,10 +112,29 @@ services:
     networks:
       - devpath-network
 
+  course-service:
+    build:
+      context: ./course-service
+    container_name: course-service
+    ports:
+      - "8082:8082"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      mysql-course:
+        condition: service_healthy
+    networks:
+      - devpath-network
+
 # ── Volúmenes y redes ────────────────────────────────────────────────────────
 
 volumes:
   mysql-auth-data:
+  mysql-course-data:
 
 networks:
   devpath-network:
