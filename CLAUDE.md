@@ -14,9 +14,7 @@ Es un proyecto de práctica para consolidar conocimientos de Spring Boot, Spring
 
 ## Stack tecnológico
 
-- **Backend**: Java 17, Spring Security + JWT
-  - Microservicios de negocio (auth, course, enrollment, ai): Spring Boot 3.2.0, Spring Cloud 2023.0.0
-  - Infraestructura (eureka-server, config-server, api-gateway): Spring Boot 4.0.5, Spring Cloud 2025.1.1
+- **Backend**: Java 17, Spring Boot 3.2, Spring Cloud 2023.0.0, Spring Security + JWT
 - **Base de datos**: MySQL 8.0 (una por microservicio)
 - **Infraestructura**: Docker Compose, Eureka Server, Spring Cloud Gateway, Spring Cloud Config, Feign Client, Spring Boot Actuator
 - **IA**: API de Groq (modelo `llama-3.3-70b-versatile`) — llamada HTTP desde `ai-service`. Compatible con formato OpenAI.
@@ -278,8 +276,6 @@ path_courses (
 
 ## Dependencias base (pom.xml de cada microservicio)
 
-### Microservicios de negocio (auth, course, enrollment, ai) — Spring Boot 3.2
-
 ```xml
 <parent>
     <groupId>org.springframework.boot</groupId>
@@ -305,34 +301,7 @@ path_courses (
 </dependencyManagement>
 ```
 
-### Infraestructura (eureka-server, config-server, api-gateway) — Spring Boot 4.0.5
-
-```xml
-<parent>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-parent</artifactId>
-    <version>4.0.5</version>
-</parent>
-
-<properties>
-    <java.version>17</java.version>
-    <spring-cloud.version>2025.1.1</spring-cloud.version>
-</properties>
-
-<dependencyManagement>
-    <dependencies>
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-dependencies</artifactId>
-            <version>${spring-cloud.version}</version>
-            <type>pom</type>
-            <scope>import</scope>
-        </dependency>
-    </dependencies>
-</dependencyManagement>
-```
-
-Todos los microservicios de negocio (auth, course, enrollment, ai) incluyen:
+Todos los microservicios (auth, course, enrollment, ai) incluyen:
 - `spring-boot-starter-web`
 - `spring-boot-starter-data-jpa`
 - `spring-boot-starter-validation`
@@ -473,6 +442,66 @@ api-gateway:
 
 ### Regla importante
 `JWT_SECRET` debe ser la **misma clave** en `auth-service` y `api-gateway` — `auth-service` la usa para firmar el token y `api-gateway` para validarlo.
+
+---
+
+## Detalles de implementación por servicio
+
+### enrollment-service
+
+**Cómo obtener el usuario autenticado:**
+El gateway propaga el email del usuario como header `X-User-Id`. En los controllers del `enrollment-service` se obtiene así:
+
+```java
+@PostMapping
+public ResponseEntity<ApiResponse<EnrollmentDto>> enroll(
+        @RequestHeader("X-User-Id") String userEmail,
+        @RequestBody EnrollmentRequest request) {
+    return ResponseEntity.ok(enrollmentService.enroll(userEmail, request));
+}
+```
+
+El `X-User-Id` contiene el **email** del usuario (el `subject` del JWT), no un ID numérico.
+
+**Feign Client hacia `course-service`:**
+```java
+@FeignClient(name = "course-service")
+public interface CourseClient {
+    @GetMapping("/api/courses/{id}")
+    ApiResponse<CourseDto> getCourseById(@PathVariable Long id);
+
+    @GetMapping("/api/courses/{id}/lessons/{lessonId}")
+    ApiResponse<LessonDto> getLessonById(@PathVariable Long id,
+                                          @PathVariable Long lessonId);
+}
+```
+
+**Feign Client hacia `auth-service`:**
+```java
+@FeignClient(name = "auth-service")
+public interface AuthClient {
+    @GetMapping("/api/auth/me")
+    ApiResponse<UserDto> getUserByEmail(
+        @RequestHeader("X-User-Id") String email
+    );
+}
+```
+
+**Flujo de inscripción:**
+1. Controller recibe `userEmail` del header `X-User-Id` y `courseId` del body
+2. Llama a `course-service` via Feign para verificar que el curso existe
+3. Si existe, crea la inscripción en `enrollment_db`
+4. Devuelve el enrollment enriquecido con datos del curso
+
+**Flujo de progreso:**
+- `progress_pct` en `enrollments` se recalcula cada vez que se completa una clase
+- Fórmula: `(clases completadas / total_lessons del curso) * 100`
+- Cuando `progress_pct` llega a 100, `status` cambia a `COMPLETED`
+
+**Endpoint INTERNAL `/api/paths`:**
+- Solo lo llama `ai-service` — no está expuesto al frontend
+- El gateway debe configurarse para bloquearlo desde el exterior
+- Recibe la ruta generada por la IA y la persiste en `learning_paths` + `path_courses`
 
 ---
 

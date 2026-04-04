@@ -36,6 +36,23 @@ services:
       retries: 5
       start_period: 30s
 
+  mysql-enrollment:
+    image: mysql:8.0
+    container_name: mysql-enrollment
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: enrollment_db
+    volumes:
+      - mysql-enrollment-data:/var/lib/mysql
+    networks:
+      - devpath-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   # ── Infraestructura ─────────────────────────────────────────────────────────
 
   eureka-server:
@@ -129,12 +146,43 @@ services:
         condition: service_healthy
     networks:
       - devpath-network
+  enrollment-service:
+    build:
+      context: ./enrollment-service
+    container_name: enrollment-service
+    ports:
+      - "8083:8083"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      mysql-enrollment:
+        condition: service_healthy
+    networks:
+      - devpath-network
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: phpmyadmin
+    ports:
+      - "8090:80"
+    environment:
+      PMA_HOSTS: mysql-auth,mysql-course,mysql-enrollment
+      PMA_PORT: 3306
+    networks:
+      - devpath-network
+    depends_on:
+      - mysql-auth
 
 # ── Volúmenes y redes ────────────────────────────────────────────────────────
 
 volumes:
   mysql-auth-data:
   mysql-course-data:
+  mysql-enrollment-data:
 
 networks:
   devpath-network:
