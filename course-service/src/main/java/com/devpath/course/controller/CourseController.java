@@ -2,6 +2,7 @@ package com.devpath.course.controller;
 
 import com.devpath.course.dto.request.CreateCourseRequest;
 import com.devpath.course.dto.request.CreateLessonRequest;
+import com.devpath.course.dto.request.UpdateContentCacheRequest;
 import com.devpath.course.dto.request.UpdateCourseRequest;
 import com.devpath.course.dto.response.*;
 import com.devpath.course.service.CourseService;
@@ -58,6 +59,15 @@ public class CourseController {
             @PathVariable Long id,
             @Valid @RequestBody UpdateCourseRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Curso actualizado", courseService.updateCourse(id, request)));
+    }
+
+    @PutMapping("/{id}/lessons/{lessonId}/cache")
+    public ResponseEntity<ApiResponse<Void>> updateContentCache(
+            @PathVariable Long id,
+            @PathVariable Long lessonId,
+            @Valid @RequestBody UpdateContentCacheRequest request) {
+        courseService.updateContentCache(id, lessonId, request);
+        return ResponseEntity.ok(ApiResponse.success("Caché de contenido actualizado", null));
     }
 
     @PostMapping("/{id}/lessons")

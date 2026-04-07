@@ -2,6 +2,7 @@ package com.devpath.course.service;
 
 import com.devpath.course.dto.request.CreateCourseRequest;
 import com.devpath.course.dto.request.CreateLessonRequest;
+import com.devpath.course.dto.request.UpdateContentCacheRequest;
 import com.devpath.course.dto.request.UpdateCourseRequest;
 import com.devpath.course.dto.response.*;
 import com.devpath.course.exception.ResourceNotFoundException;
@@ -140,6 +141,15 @@ public class CourseService {
                 .orderNumber(saved.getOrderNumber())
                 .title(saved.getTitle())
                 .build();
+    }
+
+    @Transactional
+    public void updateContentCache(Long courseId, Long lessonId, UpdateContentCacheRequest request) {
+        Lesson lesson = lessonRepository.findByIdAndCourseId(lessonId, courseId)
+                .orElseThrow(() -> new ResourceNotFoundException("Clase no encontrada con id: " + lessonId));
+        lesson.setContentCache(request.getContent());
+        lesson.setContentGeneratedAt(java.time.LocalDateTime.now());
+        lessonRepository.save(lesson);
     }
 
     // ── Mappers ──────────────────────────────────────────────────────────────

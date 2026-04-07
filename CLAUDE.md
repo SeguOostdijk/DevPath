@@ -17,7 +17,7 @@ Es un proyecto de práctica para consolidar conocimientos de Spring Boot, Spring
 - **Backend**: Java 17, Spring Boot 3.2, Spring Cloud 2023.0.0, Spring Security + JWT
 - **Base de datos**: MySQL 8.0 (una por microservicio)
 - **Infraestructura**: Docker Compose, Eureka Server, Spring Cloud Gateway, Spring Cloud Config, Feign Client, Spring Boot Actuator
-- **IA**: API de Groq (modelo `llama-3.3-70b-versatile`) — llamada HTTP desde `ai-service`. Compatible con formato OpenAI.
+- **IA**: Spring AI con Groq (modelo `llama-3.3-70b-versatile`) — integrado en `ai-service` via `spring-ai-openai-spring-boot-starter`.
 - **Frontend**: React (Fase 5)
 - **IDE**: IntelliJ IDEA Community
 - **Build**: Maven
@@ -346,20 +346,101 @@ configurations/
 
 El config-server encuentra el archivo correcto usando el `spring.application.name` de cada servicio.
 
-**`configurations/ai-service.yml`** (en config-server):
-```yaml
-groq:
-  api-key: ${GROQ_API_KEY}
-  base-url: https://api.groq.com/openai/v1/chat/completions
-  model: llama-3.3-70b-versatile
-  max-tokens: 1000
+### ai-service
+
+**Dependencia Spring AI:**
+```xml
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-openai-spring-boot-starter</artifactId>
+</dependency>
 ```
 
-El cliente de Groq en `ai-service` usa el formato compatible con OpenAI — solo cambia la base URL y el modelo.
+BOM de Spring AI en `dependencyManagement`:
+```xml
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-bom</artifactId>
+    <version>1.0.0-M6</version>
+    <type>pom</type>
+    <scope>import</scope>
+</dependency>
+```
+
+**`configurations/ai-service.yml`** (en config-server):
+```yaml
+spring:
+  ai:
+    openai:
+      api-key: ${GROQ_API_KEY}
+      base-url: https://api.groq.com/openai
+      chat:
+        options:
+          model: llama-3.3-70b-versatile
+          max-tokens: 1000
+```
+
+**Uso en el servicio:**
+```java
+@Autowired
+private ChatClient chatClient;
+
+String respuesta = chatClient.prompt()
+    .user(prompt)
+    .call()
+    .content();
+```
+
+**Variables de entorno** — agregar al `docker-compose.yml` en `ai-service`:
+```yaml
+environment:
+  GROQ_API_KEY: ${GROQ_API_KEY}
+```
+
+**Flujo de generación de ruta:**
+1. Frontend manda el objetivo y respuestas del chat a `POST /api/ai/recommend`
+2. `ai-service` consulta el catálogo completo a `course-service` via Feign
+3. Construye un prompt con el objetivo del usuario y el catálogo disponible
+4. Llama a Groq via Spring AI y parsea la respuesta como lista ordenada de cursos
+5. Llama a `enrollment-service` via Feign para persistir la ruta (`POST /api/paths`)
+6. Devuelve la ruta generada al frontend
+
+**Flujo de contenido de clase:**
+1. Frontend llama a `POST /api/ai/lessons/{lessonId}/content`
+2. `ai-service` consulta `course-service` via Feign para ver si hay `content_cache`
+3. Si existe → devuelve el cache directamente sin llamar a Groq
+4. Si no → genera el contenido con Spring AI, lo guarda en `content_cache` via Feign, devuelve
+
+**Feign Client hacia `course-service`:**
+```java
+@FeignClient(name = "course-service")
+public interface CourseClient {
+    @GetMapping("/api/courses")
+    ApiResponse<List<CourseDto>> getAllCourses();
+
+    @GetMapping("/api/courses/{id}/lessons/{lessonId}")
+    ApiResponse<LessonDto> getLessonById(@PathVariable Long id,
+                                          @PathVariable Long lessonId);
+
+    @PutMapping("/api/courses/{id}/lessons/{lessonId}/cache")
+    ApiResponse<Void> updateContentCache(@PathVariable Long id,
+                                          @PathVariable Long lessonId,
+                                          @RequestBody ContentCacheRequest request);
+}
+```
+
+**Feign Client hacia `enrollment-service`:**
+```java
+@FeignClient(name = "enrollment-service")
+public interface EnrollmentClient {
+    @PostMapping("/api/paths")
+    ApiResponse<LearningPathDto> savePath(@RequestBody SavePathRequest request);
+}
+```
 
 ---
 
-## Convenciones de código
+
 
 - Nombres de paquetes: `com.devpath.{servicio}` — ej: `com.devpath.auth`, `com.devpath.course`
 - DTOs para todas las requests y responses — nunca exponer entidades JPA directamente

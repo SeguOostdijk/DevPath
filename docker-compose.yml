@@ -164,6 +164,22 @@ services:
     networks:
       - devpath-network
 
+  ai-service:
+    build:
+      context: ./ai-service
+    container_name: ai-service
+    ports:
+      - "8084:8084"
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    networks:
+      - devpath-network
+
   phpmyadmin:
     image: phpmyadmin:latest
     container_name: phpmyadmin
